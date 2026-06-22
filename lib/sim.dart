@@ -49,6 +49,10 @@ class Stimulator {
   /// Returns whether the synapse fired (the signal "passed").
   bool pulse(Synapse s, double t, double x) => s.input(t, x, params);
 
+  /// Deliver a teacher/reward signal [m] (+/-/0) to [s] at time [t] (threshold ②).
+  /// Returns the change in strength actually applied.
+  double teach(Synapse s, double t, double m) => s.teach(t, m, params);
+
   /// Read the synapse state at time [t] without mutating it. `a` and `effective`
   /// are the lazily-decayed values as of [t].
   Observation observe(Synapse s, double t) => Observation(

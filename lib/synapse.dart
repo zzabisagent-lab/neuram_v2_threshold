@@ -77,4 +77,38 @@ class Synapse {
   /// eligibility decay since the last activity (lazy). This is what downstream
   /// reads and what the pruning rule tests.
   double effective(double t, Params p) => w * math.exp(-(t - tLast) / p.tauE);
+
+  /// Threshold ② — connection strength (gradual formation).
+  ///
+  /// Applies a teacher/reward signal [m] at time [t] to a synapse whose last input
+  /// passed threshold ①. Strength changes only when the passed activity has
+  /// *persisted* (the eligibility is still fresh AND there have been at least
+  /// [Params.sMin] recent consecutive firings). The increment is sub-unity and
+  /// further damped by the consolidation state (metaplasticity), so strength forms
+  /// gradually over many presentations rather than in one step.
+  ///
+  /// Returns the change in strength actually applied.
+  double teach(double t, double m, Params p) {
+    // Only a synapse whose last input fired participates (threshold ① gate).
+    if (!lastFired) return 0.0;
+
+    // Eligibility of the firing contribution, decayed lazily since last activity.
+    final e = math.exp(-(t - tLast) / p.tauE);
+    if (e < p.thetaE) return 0.0; // stale contribution, ignore
+
+    // Temporal-persistence gate of the strength threshold.
+    if (firedCount < p.sMin) return 0.0;
+
+    // Metaplasticity: the more consolidated, the smaller each step.
+    final etaEff = p.etaBase / (1.0 + c);
+
+    final wOld = w;
+    w = (w + etaEff * e * m).clamp(0.0, p.wMax);
+
+    // Consolidation accumulates with a slow time constant (>> tauE), decayed
+    // lazily since the last activity.
+    c = c * math.exp(-(t - tLast) / p.tauC) + p.fCons(m.abs() * e);
+
+    return w - wOld;
+  }
 }
