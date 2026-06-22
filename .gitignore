@@ -1,0 +1,16 @@
+# Dart / Pub
+.dart_tool/
+.packages
+build/
+pubspec.lock
+
+# Persistence artifacts produced by the simulator (Stage A file serialization)
+*.connectome.json
+/run/
+
+# Editor / OS
+.idea/
+.vscode/
+*.iml
+Thumbs.db
+desktop.ini

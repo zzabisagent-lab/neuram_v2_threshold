@@ -1,0 +1,14 @@
+name: neuram_v2_threshold
+description: >-
+  Threshold-based connectome engine. Each synapse faithfully simulates two
+  threshold dynamics: (1) a signal-pass/firing threshold via leaky integration,
+  and (2) a connection-strength threshold that gates gradual formation, decay
+  and pruning. Conceptually new model — shares no code or git history with the
+  legacy Half-MB/opponent (neuram_companion) engine.
+version: 0.1.0
+publish_to: none
+
+environment:
+  sdk: ^3.8.1
+
+# No dependencies by design: pure Dart, offline, no new external dependencies.
