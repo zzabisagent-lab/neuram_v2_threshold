@@ -53,6 +53,12 @@ class Stimulator {
   /// Returns the change in strength actually applied.
   double teach(Synapse s, double t, double m) => s.teach(t, m, params);
 
+  /// Forwarded magnitude through [s] at time [t], gated by the strength threshold.
+  double propagate(Synapse s, double t) => s.propagate(t, params);
+
+  /// Lazily evaluate pruning of [s] at time [t]. Returns true if it was pruned.
+  bool prune(Synapse s, double t) => s.maybePrune(t, params);
+
   /// Read the synapse state at time [t] without mutating it. `a` and `effective`
   /// are the lazily-decayed values as of [t].
   Observation observe(Synapse s, double t) => Observation(

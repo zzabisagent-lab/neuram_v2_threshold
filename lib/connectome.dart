@@ -45,6 +45,8 @@ class Connectome {
     'tLastFire': s.tLastFire == double.negativeInfinity ? null : s.tLastFire,
     'firedCount': s.firedCount,
     'lastFired': s.lastFired,
+    'formAcc': s.formAcc,
+    'tLastForm': s.tLastForm,
   };
 
   void _applyJson(Synapse s, Map<String, dynamic> j) {
@@ -58,6 +60,8 @@ class Connectome {
         : (j['tLastFire'] as num).toDouble();
     s.firedCount = j['firedCount'] as int;
     s.lastFired = j['lastFired'] as bool;
+    s.formAcc = (j['formAcc'] as num?)?.toDouble() ?? 0.0;
+    s.tLastForm = (j['tLastForm'] as num?)?.toDouble() ?? 0.0;
   }
 
   String toJsonString() => const JsonEncoder.withIndent('  ').convert({

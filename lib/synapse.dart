@@ -37,13 +37,21 @@ class Synapse {
   /// whose last input passed threshold ①.
   bool lastFired;
 
+  /// Structural-formation accumulator for a silent synapse (leaks with tauForm).
+  double formAcc;
+
+  /// Timestamp of the last formation-driving input (for lazy decay of [formAcc]).
+  double tLastForm;
+
   Synapse(this.id, {this.w = 0.0, this.active = true})
     : a = 0.0,
       tLast = 0.0,
       c = 0.0,
       tLastFire = double.negativeInfinity,
       firedCount = 0,
-      lastFired = false;
+      lastFired = false,
+      formAcc = 0.0,
+      tLastForm = 0.0;
 
   /// Threshold ① — signal-pass (firing).
   ///
@@ -52,6 +60,21 @@ class Synapse {
   /// input updates state but does not "pass": it is neither propagated nor allowed
   /// to drive plasticity.
   bool input(double t, double x, Params p) {
+    // A silent (latent) synapse does not pass signal; it can only structurally
+    // realize. Repeated co-activation within tauForm grows the formation
+    // accumulator toward thetaForm; otherwise it leaks away (degeneration).
+    if (!active) {
+      formAcc = formAcc * math.exp(-(t - tLastForm) / p.tauForm) + x;
+      tLastForm = t;
+      lastFired = false;
+      if (formAcc >= p.thetaForm) {
+        active = true; // structural formation: the connection is realized
+        a = 0.0; // start threshold ① from a clean accumulator
+        tLast = t;
+      }
+      return false;
+    }
+
     // Lazy leak of the activation accumulator since the last activity.
     a = a * math.exp(-(t - tLast) / p.tauA) + x;
     tLast = t;
@@ -110,5 +133,36 @@ class Synapse {
     c = c * math.exp(-(t - tLast) / p.tauC) + p.fCons(m.abs() * e);
 
     return w - wOld;
+  }
+
+  /// Downstream propagation gated by the connection-strength threshold.
+  ///
+  /// A signal is forwarded only when the synapse passed threshold ① (fired), is
+  /// structurally realized (active), and its effective strength is at least the
+  /// strength passing threshold. That passing threshold is [Params.thetaPrune] —
+  /// the same connection-strength threshold that governs maintenance/pruning,
+  /// expressing the dual meaning of the strength threshold (it gates both
+  /// formation/maintenance and propagation). Below it, propagation is blocked.
+  ///
+  /// Returns the forwarded magnitude (the effective strength), or 0 if blocked.
+  double propagate(double t, Params p) {
+    if (!lastFired || !active) return 0.0;
+    final eff = effective(t, p);
+    if (eff < p.thetaPrune) return 0.0; // strength gate
+    return eff;
+  }
+
+  /// Structural elimination (pruning), evaluated lazily on touch (never per dt).
+  ///
+  /// An active synapse is pruned when stimulation has ceased for at least 3*tauE
+  /// *and* its effective strength has fallen below [Params.thetaPrune] — i.e. the
+  /// low-strength state has persisted. Returns true if it was pruned.
+  bool maybePrune(double t, Params p) {
+    if (!active) return false;
+    if (t - tLast >= 3.0 * p.tauE && effective(t, p) < p.thetaPrune) {
+      active = false;
+      return true;
+    }
+    return false;
   }
 }
