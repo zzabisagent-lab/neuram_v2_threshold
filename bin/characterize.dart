@@ -11,6 +11,7 @@
 // (S4 appends two derived-for-convenience columns: dw,etaEff.)
 
 import 'dart:io';
+import 'dart:math' as math;
 
 import 'package:neuram_v2_threshold/connectome.dart';
 import 'package:neuram_v2_threshold/params.dart';
@@ -95,6 +96,9 @@ void main() {
   s4Metaplasticity();
   s5Relearning();
   s6Coupling();
+  s7SubthresholdFreq();
+  s8Depression();
+  s9Eligibility();
   writeSummary();
   stdout.writeln('characterization complete -> $outDir/');
 }
@@ -297,6 +301,119 @@ void s6Coupling() {
   csv.save('s6_coupling.csv');
 }
 
+// --- S7: sub-threshold frequency --------------------------------------------
+// Each presentation = nPulses sub-threshold pulses (single never fires, but they
+// accumulate to fire and reach sMin), then a teacher. Sweep magnitude x (<
+// thetaFire) and presentation interval ipi. Question: does input amplitude or
+// presentation frequency change the formation curve?
+void s7SubthresholdFreq() {
+  final csv = Csv();
+  const proto = 'S7';
+  const xs = [0.20, 0.30, 0.40]; // all < thetaFire (0.5)
+  const ipis = [0.05, 0.1, 0.2, 0.3, 0.5];
+  const nPulses = 5;
+  const dPulse = 0.005; // small: span 5*dPulse < min ipi, single pulse < theta
+  for (final x in xs) {
+    for (final ipi in ipis) {
+      final f = freshSyn();
+      final cid = 'x=${x.toStringAsFixed(2)}_ipi=${ipi.toStringAsFixed(2)}';
+      for (var k = 0; k < 60; k++) {
+        final tStart = k * ipi;
+        for (var j = 0; j < nPulses; j++) {
+          f.sim.pulse(f.s, tStart + j * dPulse, x);
+        }
+        final tTeach = tStart + nPulses * dPulse;
+        f.sim.teach(f.s, tTeach, 1.0);
+        // observe.fired reflects whether the last pulse of the train passed.
+        csv.row(
+          proto,
+          cid,
+          tTeach,
+          x.toStringAsFixed(2),
+          '1.0',
+          f.sim.observe(f.s, tTeach),
+        );
+      }
+    }
+  }
+  csv.save('s7_subthreshold_freq.csv');
+}
+
+// --- S8: depression / LTD ---------------------------------------------------
+// Form to ~0.5 with m=+1.0, then apply negative teachers; record w and dw.
+void s8Depression() {
+  final csv = Csv(',dw');
+  const proto = 'S8';
+  const negs = [-0.5, -1.0];
+  for (final m in negs) {
+    final f = freshSyn();
+    final cid = 'm=${m.toStringAsFixed(1)}';
+    var prevW = f.s.w;
+    // (a) potentiate to ~0.5 (recorded as phase 'form')
+    var t = 0.0;
+    for (var k = 0; k < 40; k++) {
+      presentation(f.sim, f.s, t, 1.0);
+      final tTeach = t + 0.10;
+      final o = f.sim.observe(f.s, tTeach);
+      csv.row(proto, '$cid|form', tTeach, '', '1.0', o, ',${fmt(o.w - prevW)}');
+      prevW = o.w;
+      t += 0.2;
+      if (f.s.w >= 0.5) break;
+    }
+    // (b) depress with negative m (recorded as phase 'ltd')
+    for (var k = 0; k < 40; k++) {
+      presentation(f.sim, f.s, t, m);
+      final tTeach = t + 0.10;
+      final o = f.sim.observe(f.s, tTeach);
+      csv.row(
+        proto,
+        '$cid|ltd',
+        tTeach,
+        '',
+        m.toStringAsFixed(1),
+        o,
+        ',${fmt(o.w - prevW)}',
+      );
+      prevW = o.w;
+      t += 0.2;
+    }
+  }
+  csv.save('s8_depression.csv');
+}
+
+// --- S9: eligibility trace --------------------------------------------------
+// Establish firing (2 pulses -> firedCount reaches sMin), then deliver the
+// teacher after a delay dt. dw should track exp(-dt/tauE), with the thetaE cutoff
+// near firingWindow. Fresh synapse per dt. NOTE: sMin=2 means a single fire can
+// never teach, so two pulses open the gate; dt is the delay after the last fire.
+void s9Eligibility() {
+  final csv = Csv(',dw,expDecay');
+  const proto = 'S9';
+  final tauE = const Params().tauE;
+  const dts = [0.0, 0.05, 0.1, 0.2, 0.3, 0.5, 0.7, 0.9];
+  for (final dt in dts) {
+    final f = freshSyn();
+    final cid = 'dt=${dt.toStringAsFixed(2)}';
+    // two supra pulses to reach sMin; last fire at t=0.05
+    f.sim.pulse(f.s, 0.0, 0.6);
+    f.sim.pulse(f.s, 0.05, 0.6);
+    final tTeach = 0.05 + dt;
+    final dw = f.sim.teach(f.s, tTeach, 1.0);
+    final o = f.sim.observe(f.s, tTeach);
+    final expDecay = math.exp(-dt / tauE); // expected eligibility factor
+    csv.row(
+      proto,
+      cid,
+      tTeach,
+      '0.6',
+      '1.0',
+      o,
+      ',${fmt(dw)},${fmt(expDecay)}',
+    );
+  }
+  csv.save('s9_eligibility.csv');
+}
+
 // --- SUMMARY ----------------------------------------------------------------
 void writeSummary() {
   final p = const Params();
@@ -435,10 +552,80 @@ void writeSummary() {
     return (wSub: fa.s.w, wSupra: fb.s.w);
   }
 
+  // S7: do amplitude/frequency change the formation curve? Compare final w@60
+  // across the 15 (x,ipi) conditions.
+  ({double minW, double maxW, double refW}) s7() {
+    var minW = double.infinity, maxW = -double.infinity, refW = 0.0;
+    for (final x in [0.20, 0.30, 0.40]) {
+      for (final ipi in [0.05, 0.1, 0.2, 0.3, 0.5]) {
+        final f = freshSyn();
+        for (var k = 0; k < 60; k++) {
+          final tStart = k * ipi;
+          for (var j = 0; j < 5; j++) {
+            f.sim.pulse(f.s, tStart + j * 0.005, x);
+          }
+          f.sim.teach(f.s, tStart + 5 * 0.005, 1.0);
+        }
+        if (f.s.w < minW) minW = f.s.w;
+        if (f.s.w > maxW) maxW = f.s.w;
+        if (x == 0.30 && ipi == 0.2) refW = f.s.w;
+      }
+    }
+    return (minW: minW, maxW: maxW, refW: refW);
+  }
+
+  // S8: same |m| potentiation vs depression increment + clamp.
+  ({double dwPot, double dwDep, double wMin}) s8() {
+    final f = freshSyn();
+    var t = 0.0;
+    var prev = 0.0;
+    var dwPot = 0.0;
+    while (f.s.w < 0.5 && t < 20) {
+      presentation(f.sim, f.s, t, 1.0);
+      dwPot = f.s.w - prev; // last potentiation increment near w~0.5
+      prev = f.s.w;
+      t += 0.2;
+    }
+    final cAtForm = f.s.c;
+    presentation(f.sim, f.s, t, -1.0);
+    final dwDep = f.s.w - prev; // first depression increment (|m|=1.0)
+    t += 0.2;
+    prev = f.s.w;
+    var wMin = f.s.w;
+    for (var k = 0; k < 60; k++) {
+      presentation(f.sim, f.s, t, -1.0);
+      if (f.s.w < wMin) wMin = f.s.w;
+      t += 0.2;
+    }
+    // cAtForm referenced for context (high c at formation slows both directions)
+    if (cAtForm < 0) {}
+    return (dwPot: dwPot, dwDep: dwDep, wMin: wMin);
+  }
+
+  // S9: eligibility trace vs delay.
+  String s9Table() {
+    final tauE = p.tauE;
+    final rows = <String>[];
+    for (final dt in [0.0, 0.05, 0.1, 0.2, 0.3, 0.5, 0.7, 0.9]) {
+      final f = freshSyn();
+      f.sim.pulse(f.s, 0.0, 0.6);
+      f.sim.pulse(f.s, 0.05, 0.6);
+      final dw = f.sim.teach(f.s, 0.05 + dt, 1.0);
+      final e = math.exp(-dt / tauE);
+      rows.add(
+        '| ${dt.toStringAsFixed(2)} | ${dw.toStringAsFixed(5)} '
+        '| ${e.toStringAsFixed(4)} |',
+      );
+    }
+    return rows.join('\n');
+  }
+
   final s2 = s2Curve();
   final s4r = s4();
   final s5r = s5();
   final s6r = s6();
+  final s7r = s7();
+  final s8r = s8();
 
   final b = StringBuffer()
     ..writeln('# Single-synapse characterization — SUMMARY')
@@ -519,11 +706,52 @@ void writeSummary() {
       'gate for threshold-② coupling.',
     )
     ..writeln()
+    ..writeln('## S7 — sub-threshold frequency / amplitude')
+    ..writeln(
+      '`s7_subthreshold_freq.csv` (x∈{0.20,0.30,0.40} × ipi∈{0.05..0.5}, '
+      '60 presentations, 5 accumulating pulses each). Final w@60 across all 15 '
+      'conditions spans [${s7r.minW.toStringAsFixed(4)}, '
+      '${s7r.maxW.toStringAsFixed(4)}] (ref x=0.30,ipi=0.20 -> '
+      '${s7r.refW.toStringAsFixed(4)}). '
+      '${(s7r.maxW - s7r.minW) < 1e-9 ? 'Identical across amplitude AND frequency' : 'Spread = ${(s7r.maxW - s7r.minW).toStringAsFixed(4)}'}: '
+      'once a sub-threshold train accumulates past thetaFire and reaches sMin, '
+      'threshold-② formation depends on eligibility+teacher, NOT on input '
+      'amplitude or presentation frequency. Frequency is NOT reflected in the '
+      'formed strength (reported as observed).',
+    )
+    ..writeln()
+    ..writeln('## S8 — depression / LTD')
+    ..writeln(
+      '`s8_depression.csv` (+ dw column). Potentiate to ~0.5 (m=+1.0) then apply '
+      'negative teachers. Increment near w≈0.5: last potentiation Δw = '
+      '${s8r.dwPot.toStringAsFixed(5)}, first depression Δw (|m|=1.0) = '
+      '${s8r.dwDep.toStringAsFixed(5)} (sign-symmetric in the rule '
+      'w+=etaEff·e·m; magnitudes set by the shared c-state). Sustained negative '
+      'teaching (60 presentations) drives w down only to '
+      '${s8r.wMin.toStringAsFixed(4)} — it does NOT reach the 0 clamp because '
+      '|m| also raises c (fCons uses |m|), so each depression step shrinks '
+      '(metaplastic slowing), symmetric with potentiation. The 0-clamp is a hard '
+      'floor but is not what halts the descent here.',
+    )
+    ..writeln()
+    ..writeln('## S9 — eligibility trace')
+    ..writeln(
+      '`s9_eligibility.csv` (+ dw,expDecay columns). Two pulses reach sMin '
+      '(a single fire cannot teach: sMin=2), then teacher after delay dt. dw '
+      'tracks exp(-dt/tauE); thetaE cutoff near firingWindow '
+      '(${p.firingWindow.toStringAsFixed(3)}).',
+    )
+    ..writeln()
+    ..writeln('| dt | dw | exp(-dt/tauE) |')
+    ..writeln('|---:|---:|---:|')
+    ..writeln(s9Table())
+    ..writeln()
     ..writeln('## Files')
     ..writeln(
       '- s1_summation.csv, s2_formation.csv, s3_forgetting.csv, '
-      's4_metaplasticity.csv (12 common cols + dw,etaEff), s5_relearning.csv, '
-      's6_coupling.csv. All share the common header '
+      's4_metaplasticity.csv (+dw,etaEff), s5_relearning.csv, s6_coupling.csv, '
+      's7_subthreshold_freq.csv, s8_depression.csv (+dw), '
+      's9_eligibility.csv (+dw,expDecay). All share the common header '
       '`$commonHeader`.',
     );
   File('$outDir/SUMMARY.md').writeAsStringSync(b.toString());

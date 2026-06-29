@@ -37,5 +37,25 @@ Frozen §6: wMax=1.0, thetaFire=0.5, tauA=0.3, tauE=0.3, thetaE=0.05, sMin=2, et
 ## S6 — coupling boundary
 `s6_coupling.csv`. (a) sub-threshold input + teacher ×20 -> w = 0.0000 (stays 0: no firing -> no plasticity). (b) minimal firing input + teacher ×20 -> w = 0.5043 (> 0: plasticity onset). Firing is the gate for threshold-② coupling.
 
+## S7 — sub-threshold frequency / amplitude
+`s7_subthreshold_freq.csv` (x∈{0.20,0.30,0.40} × ipi∈{0.05..0.5}, 60 presentations, 5 accumulating pulses each). Final w@60 across all 15 conditions spans [0.6992, 0.6992] (ref x=0.30,ipi=0.20 -> 0.6992). Identical across amplitude AND frequency: once a sub-threshold train accumulates past thetaFire and reaches sMin, threshold-② formation depends on eligibility+teacher, NOT on input amplitude or presentation frequency. Frequency is NOT reflected in the formed strength (reported as observed).
+
+## S8 — depression / LTD
+`s8_depression.csv` (+ dw column). Potentiate to ~0.5 (m=+1.0) then apply negative teachers. Increment near w≈0.5: last potentiation Δw = 0.00764, first depression Δw (|m|=1.0) = -0.00730 (sign-symmetric in the rule w+=etaEff·e·m; magnitudes set by the shared c-state). Sustained negative teaching (60 presentations) drives w down only to 0.2838 — it does NOT reach the 0 clamp because |m| also raises c (fCons uses |m|), so each depression step shrinks (metaplastic slowing), symmetric with potentiation. The 0-clamp is a hard floor but is not what halts the descent here.
+
+## S9 — eligibility trace
+`s9_eligibility.csv` (+ dw,expDecay columns). Two pulses reach sMin (a single fire cannot teach: sMin=2), then teacher after delay dt. dw tracks exp(-dt/tauE); thetaE cutoff near firingWindow (0.899).
+
+| dt | dw | exp(-dt/tauE) |
+|---:|---:|---:|
+| 0.00 | 0.15000 | 1.0000 |
+| 0.05 | 0.12697 | 0.8465 |
+| 0.10 | 0.10748 | 0.7165 |
+| 0.20 | 0.07701 | 0.5134 |
+| 0.30 | 0.05518 | 0.3679 |
+| 0.50 | 0.02833 | 0.1889 |
+| 0.70 | 0.01455 | 0.0970 |
+| 0.90 | 0.00000 | 0.0498 |
+
 ## Files
-- s1_summation.csv, s2_formation.csv, s3_forgetting.csv, s4_metaplasticity.csv (12 common cols + dw,etaEff), s5_relearning.csv, s6_coupling.csv. All share the common header `protocol,case_id,t,input,teacher,a,w,c,fired,active,firedCount,effective`.
+- s1_summation.csv, s2_formation.csv, s3_forgetting.csv, s4_metaplasticity.csv (+dw,etaEff), s5_relearning.csv, s6_coupling.csv, s7_subthreshold_freq.csv, s8_depression.csv (+dw), s9_eligibility.csv (+dw,expDecay). All share the common header `protocol,case_id,t,input,teacher,a,w,c,fired,active,firedCount,effective`.
